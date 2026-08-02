@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>倫敦巴士即時到站</title>
+<meta name="theme-color" content="#0B0D0F">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<style>
+  /* ===== Design tokens =====
+     背景 #0B0D0F / 卡片 #16181C / 分隔線 #262A2F
+     amber #FFB300 (取材自倫敦實體巴士站 Countdown 牌嘅琥珀色 LED)
+     紅色 #DC241F (TfL 巴士車身紅)
+     字體：countdown 數字用 monospace 營造 LED 感；內文用各平台原生系統字，
+     刻意唔引入外部字型 —— 呼應呢個工具「跨平台、唔依賴任何單一系統」嘅本質 */
+  :root{
+    --bg:#0B0D0F;
+    --panel:#16181C;
+    --panel-2:#1C1F24;
+    --line:#262A2F;
+    --amber:#FFB300;
+    --amber-dim:#8a6200;
+    --red:#DC241F;
+    --text:#F2F3F4;
+    --text-dim:#9AA0A6;
+    --text-faint:#5B6066;
+    --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-led: ui-monospace, "SF Mono", "Roboto Mono", "Cascadia Mono", Consolas, monospace;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--font-body);
+    min-height:100vh;
+    min-height:100dvh;
+    display:flex;
+    justify-content:center;
+  }
+  #app{
+    width:100%;
+    max-width:480px;
+    min-height:100vh;
+    min-height:100dvh;
+    display:flex;
+    flex-direction:column;
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+
+  /* ===== Header ===== */
+  header{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:calc(env(safe-area-inset-top) + 18px) 18px 14px 18px;
+  }
+  .brand{display:flex;align-items:center;gap:10px;}
+  .brand h1{font-size:22px;margin:0;font-weight:700;letter-spacing:0.2px;}
+  .pulse{
+    width:8px;height:8px;border-radius:50%;background:var(--amber);
+    box-shadow:0 0 0 0 rgba(255,179,0,0.6);
+    animation:pulse 2s infinite;
+  }
+  @keyframes pulse{
+    0%{box-shadow:0 0 0 0 rgba(255,179,0,0.55);}
+    70%{box-shadow:0 0 0 8px rgba(255,179,0,0);}
+    100%{box-shadow:0 0 0 0 rgba(255,179,0,0);}
+  }
+  .icon-btn{
+    background:var(--panel);
+    border:1px solid var(--line);
+    color:var(--text-dim);
+    width:38px;height:38px;
+    border-radius:11px;
+    display:flex;align-items:center;justify-content:center;
+    font-size:17px;
+    cursor:pointer;
+  }
+  .icon-btn:active{background:var(--panel-2);}
+  .header-actions{display:flex;gap:8px;}
+
+  main{flex:1;padding:0 18px 24px 18px;}
+
+  .updated-row{
+    display:flex;justify-content:space-between;align-items:center;
+    color:var(--text-faint);font-size:14px;margin-bottom:14px;padding:0 2px;
+  }
+
+  /* ===== Direction cards ===== */
+  .card{
+    position:relative;
+    background:
+      repeating-linear-gradient(0deg, rgba(255,255,255,0.012) 0px, rgba(255,255,255,0.012) 1px, transparent 1px, transparent 3px),
+      var(--panel);
+    border:1px solid var(--line);
+    border-radius:16px;
+    padding:16px 16px 6px 16px;
+    margin-bottom:14px;
+    overflow:hidden;
+  }
+  .card-head{
+    display:flex;align-items:center;gap:8px;
+    color:var(--amber);
+    font-weight:700;
+    font-size:17px;
+    margin-bottom:12px;
+  }
+  .card-head .arrow{
+    width:22px;height:22px;border-radius:7px;
+    background:rgba(255,179,0,0.12);
+    display:flex;align-items:center;justify-content:center;
+    font-size:13px;flex-shrink:0;
+  }
+  .card-head .stop-name{
+    color:var(--text);
+    font-weight:600;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+
+  .row{
+    display:flex;align-items:center;gap:10px;
+    padding:10px 0;
+    border-top:1px solid var(--line);
+  }
+  .row:first-of-type{border-top:none;}
+
+  .route-badge{
+    flex-shrink:0;
+    min-width:44px;
+    text-align:center;
+    padding:5px 8px;
+    border-radius:8px;
+    font-weight:800;
+    font-size:15px;
+    color:#0B0D0F;
+  }
+  .dest{
+    flex:1;
+    min-width:0;
+    color:var(--text-dim);
+    font-size:16.5px;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .row.top .dest{color:var(--text);font-weight:600;}
+
+  .eta{
+    flex-shrink:0;
+    font-family:var(--font-led);
+    text-align:right;
+    color:var(--amber);
+    text-shadow:0 0 8px rgba(255,179,0,0.35);
+    letter-spacing:0.5px;
+    font-size:17px;
+    font-weight:600;
+  }
+  .row.top .eta{font-size:23px;}
+  .eta small{font-family:var(--font-body);color:var(--text-dim);font-weight:500;font-size:13px;margin-left:2px;}
+
+  .empty-row{
+    padding:16px 0;color:var(--text-faint);font-size:15.5px;text-align:center;
+  }
+
+  /* ===== Buttons ===== */
+  .btn{
+    width:100%;
+    padding:16px;
+    border-radius:13px;
+    border:none;
+    font-size:17px;
+    font-weight:700;
+    cursor:pointer;
+    font-family:var(--font-body);
+  }
+  .btn-primary{background:var(--amber);color:#0B0D0F;}
+  .btn-primary:active{background:#e0a000;}
+  .btn-ghost{background:transparent;color:var(--text-dim);border:1px solid var(--line);}
+  .btn-ghost:active{background:var(--panel-2);}
+
+  /* ===== Setup screen ===== */
+  #setup-screen{display:none;flex:1;flex-direction:column;padding:0 18px 24px 18px;}
+  .setup-step{display:none;flex-direction:column;gap:14px;padding-top:8px;}
+  .setup-step.active{display:flex;}
+  .setup-title{font-size:23px;font-weight:800;margin:6px 0 0 0;}
+  .setup-sub{color:var(--text-dim);font-size:15.5px;line-height:1.5;margin:0;}
+  input[type="text"]{
+    width:100%;
+    background:var(--panel);
+    border:1px solid var(--line);
+    color:var(--text);
+    padding:15px;
+    border-radius:12px;
+    font-size:17px;
+    font-family:var(--font-body);
+  }
+  input[type="text"]:focus{outline:1px solid var(--amber);}
+  details{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;}
+  details summary{color:var(--text-dim);font-size:15px;cursor:pointer;}
+  details .adv-fields{display:flex;flex-direction:column;gap:8px;margin-top:10px;}
+
+  .stop-list{
+    display:flex;flex-direction:column;gap:8px;
+    max-height:58vh;overflow-y:auto;
+    -webkit-overflow-scrolling:touch;
+  }
+  .stop-item{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:12px;
+    padding:15px 14px;
+    display:flex;align-items:center;gap:10px;
+    cursor:pointer;
+    font-size:16.5px;
+  }
+  .stop-item:active{background:var(--panel-2);border-color:var(--amber);}
+  .stop-item .seq{color:var(--text-faint);font-family:var(--font-led);font-size:13.5px;min-width:24px;}
+
+  .spinner-wrap{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:40px 0;color:var(--text-dim);font-size:15.5px;}
+  .spinner{
+    width:26px;height:26px;border-radius:50%;
+    border:3px solid var(--line);border-top-color:var(--amber);
+    animation:spin 0.8s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  .error-box{
+    background:rgba(220,36,31,0.1);
+    border:1px solid rgba(220,36,31,0.4);
+    color:#ff8f8a;
+    padding:14px;border-radius:12px;font-size:15px;line-height:1.5;
+  }
+
+  footer{
+    padding:10px 18px calc(14px + env(safe-area-inset-bottom)) 18px;
+    color:var(--text-faint);font-size:12.5px;text-align:center;
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ===================== 主畫面 ===================== -->
+  <div id="main-screen" style="display:none; flex-direction:column; flex:1;">
+    <header>
+      <div class="brand">
+        <div class="pulse" id="pulseDot"></div>
+        <h1>倫敦巴士</h1>
+      </div>
+      <div class="header-actions">
+        <button class="icon-btn" id="refreshBtn" title="立即刷新">⟳</button>
+        <button class="icon-btn" id="settingsBtn" title="設定">⚙</button>
+      </div>
+    </header>
+    <main>
+      <div class="updated-row">
+        <span id="routesLabel"></span>
+        <span id="updatedLabel">—</span>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <div class="arrow">➡️</div>
+          <span class="stop-name" id="outboundStopName">去程</span>
+        </div>
+        <div id="outboundRows"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <div class="arrow">⬅️</div>
+          <span class="stop-name" id="inboundStopName">返程</span>
+        </div>
+        <div id="inboundRows"></div>
+      </div>
+    </main>
+    <footer>資料來源：Transport for London (TfL) Unified API</footer>
+  </div>
+
+  <!-- ===================== 設定畫面 ===================== -->
+  <div id="setup-screen">
+    <header>
+      <div class="brand"><h1>設定路線</h1></div>
+      <div class="header-actions">
+        <button class="icon-btn" id="cancelSetupBtn" title="返回" style="display:none;">✕</button>
+      </div>
+    </header>
+
+    <!-- Step 1: 輸入路線 -->
+    <div class="setup-step active" id="step-route">
+      <p class="setup-title">追蹤邊條路線？</p>
+      <p class="setup-sub">輸入路線編號，多條用逗號分開，例如 493 或 493,N87</p>
+      <input type="text" id="routeInput" placeholder="例如：493" autocapitalize="characters">
+      <details>
+        <summary>進階設定：TfL app_id / app_key（可選）</summary>
+        <div class="adv-fields">
+          <input type="text" id="appIdInput" placeholder="app_id（登記後填入，減少流量限制）">
+          <input type="text" id="appKeyInput" placeholder="app_key">
+        </div>
+      </details>
+      <button class="btn btn-primary" id="routeNextBtn">下一步</button>
+    </div>
+
+    <!-- Step 2: loading -->
+    <div class="setup-step" id="step-loading">
+      <div class="spinner-wrap">
+        <div class="spinner"></div>
+        <div id="loadingText">正向 TfL 查詢路線同車站資料…</div>
+      </div>
+      <div id="loadError" style="display:none;"></div>
+    </div>
+
+    <!-- Step 3: 揀去程站 -->
+    <div class="setup-step" id="step-outbound">
+      <p class="setup-title">揀去程 (outbound) 上車站</p>
+      <p class="setup-sub">你慣常上車嗰個方向嘅車站</p>
+      <div class="stop-list" id="outboundList"></div>
+    </div>
+
+    <!-- Step 4: 揀返程站 -->
+    <div class="setup-step" id="step-inbound">
+      <p class="setup-title">揀返程 (inbound) 上車站</p>
+      <p class="setup-sub">你慣常上車嗰個方向嘅車站</p>
+      <div class="stop-list" id="inboundList"></div>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  const STORAGE_KEY = "londonbus.settings";
+  const COLOR_PALETTE = ["#FFB300","#34C759","#AF9EFF","#5AC8FA","#FF6B81","#FFD60A"];
+  const REFRESH_MS = 25000;
+
+  const els = {
+    mainScreen: document.getElementById("main-screen"),
+    setupScreen: document.getElementById("setup-screen"),
+    routesLabel: document.getElementById("routesLabel"),
+    updatedLabel: document.getElementById("updatedLabel"),
+    outboundStopName: document.getElementById("outboundStopName"),
+    inboundStopName: document.getElementById("inboundStopName"),
+    outboundRows: document.getElementById("outboundRows"),
+    inboundRows: document.getElementById("inboundRows"),
+    refreshBtn: document.getElementById("refreshBtn"),
+    settingsBtn: document.getElementById("settingsBtn"),
+    cancelSetupBtn: document.getElementById("cancelSetupBtn"),
+    routeInput: document.getElementById("routeInput"),
+    appIdInput: document.getElementById("appIdInput"),
+    appKeyInput: document.getElementById("appKeyInput"),
+    routeNextBtn: document.getElementById("routeNextBtn"),
+    loadingText: document.getElementById("loadingText"),
+    loadError: document.getElementById("loadError"),
+    outboundList: document.getElementById("outboundList"),
+    inboundList: document.getElementById("inboundList"),
+  };
+
+  let settings = loadSettings();
+  let refreshTimer = null;
+
+  function loadSettings(){
+    try{
+      const raw = localStorage.getItem(STORAGE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    }catch(e){ return null; }
+  }
+  function saveSettings(s){
+    settings = s;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+  }
+
+  function appendAuth(url){
+    if (!settings) return url;
+    const params = [];
+    if (settings.appId) params.push("app_id=" + encodeURIComponent(settings.appId));
+    if (settings.appKey) params.push("app_key=" + encodeURIComponent(settings.appKey));
+    if (params.length === 0) return url;
+    return url + (url.includes("?") ? "&" : "?") + params.join("&");
+  }
+
+  async function fetchJSON(url){
+    const res = await fetch(appendAuth(url));
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    return await res.json();
+  }
+
+  async function resolveDirectionStops(route, direction){
+    try{
+      const res = await fetchJSON(
+        "https://api.tfl.gov.uk/Line/" + encodeURIComponent(route.toLowerCase()) +
+        "/Route/Sequence/" + direction
+      );
+      const sequences = (res && Array.isArray(res.stopPointSequences)) ? res.stopPointSequences : [];
+      if (sequences.length === 0) return [];
+      const longest = sequences.reduce((a,b) =>
+        ((b.stopPoint ? b.stopPoint.length : 0) > (a.stopPoint ? a.stopPoint.length : 0) ? b : a), sequences[0]);
+      return (longest.stopPoint || []).map((s, idx) => ({ seq: idx+1, stop: s.id, name: s.name }));
+    }catch(e){ return []; }
+  }
+
+  async function fetchStopArrivals(stopId){
+    try{
+      const res = await fetchJSON("https://api.tfl.gov.uk/StopPoint/" + encodeURIComponent(stopId) + "/Arrivals");
+      return Array.isArray(res) ? res : [];
+    }catch(e){ return []; }
+  }
+
+  function colorForRoute(lineId, routes){
+    const idx = routes.findIndex(r => r.toLowerCase() === (lineId||"").toLowerCase());
+    return COLOR_PALETTE[idx >= 0 ? idx % COLOR_PALETTE.length : 0];
+  }
+
+  // ===================== 設定流程 =====================
+  function showStep(id){
+    document.querySelectorAll(".setup-step").forEach(s => s.classList.remove("active"));
+    document.getElementById(id).classList.add("active");
+  }
+
+  function openSetup(){
+    els.mainScreen.style.display = "none";
+    els.setupScreen.style.display = "flex";
+    els.cancelSetupBtn.style.display = settings ? "flex" : "none";
+    if (settings){
+      els.routeInput.value = settings.routes.join(",");
+      els.appIdInput.value = settings.appId || "";
+      els.appKeyInput.value = settings.appKey || "";
+    }
+    showStep("step-route");
+  }
+
+  els.settingsBtn.addEventListener("click", openSetup);
+  els.cancelSetupBtn.addEventListener("click", () => {
+    els.setupScreen.style.display = "none";
+    els.mainScreen.style.display = "flex";
+  });
+
+  els.routeNextBtn.addEventListener("click", async () => {
+    const routesInput = els.routeInput.value.trim();
+    const routeList = routesInput.split(",").map(r => r.trim()).filter(Boolean);
+    if (routeList.length === 0) return;
+
+    const pendingAppId = els.appIdInput.value.trim();
+    const pendingAppKey = els.appKeyInput.value.trim();
+    // 暫存返 app_id/key,等下面查詢用得到 appendAuth()
+    settings = Object.assign({}, settings, { appId: pendingAppId, appKey: pendingAppKey });
+
+    showStep("step-loading");
+    els.loadError.style.display = "none";
+    els.loadingText.textContent = "正向 TfL 查詢路線同車站資料…";
+
+    const primaryRoute = routeList[0];
+    const [outboundStops, inboundStops] = await Promise.all([
+      resolveDirectionStops(primaryRoute, "outbound"),
+      resolveDirectionStops(primaryRoute, "inbound"),
+    ]);
+
+    if (outboundStops.length === 0 || inboundStops.length === 0){
+      els.loadError.style.display = "block";
+      els.loadError.innerHTML =
+        '<div class="error-box">喺 TfL API 度搵唔到路線「' + escapeHtml(primaryRoute) +
+        '」嘅資料，請檢查路線編號有冇打錯（例如夜線要打 N87 唔係 87N）。</div>' +
+        '<button class="btn btn-ghost" id="backToRouteBtn" style="margin-top:12px;">返回重新輸入</button>';
+      document.getElementById("backToRouteBtn").addEventListener("click", () => showStep("step-route"));
+      return;
+    }
+
+    renderStopList(els.outboundList, outboundStops, (chosen) => {
+      settings.routes = routeList;
+      settings.outbound = { label: chosen.name, stopId: chosen.stop };
+      showStep("step-inbound");
+    });
+    showStep("step-outbound");
+
+    renderStopList(els.inboundList, inboundStops, (chosen) => {
+      settings.inbound = { label: chosen.name, stopId: chosen.stop };
+      finishSetup();
+    });
+  });
+
+  function renderStopList(container, stops, onPick){
+    container.innerHTML = "";
+    stops.forEach(s => {
+      const div = document.createElement("div");
+      div.className = "stop-item";
+      div.innerHTML = '<span class="seq">' + s.seq + '</span><span>' + escapeHtml(s.name) + '</span>';
+      div.addEventListener("click", () => onPick(s));
+      container.appendChild(div);
+    });
+  }
+
+  function finishSetup(){
+    saveSettings(settings);
+    els.setupScreen.style.display = "none";
+    els.mainScreen.style.display = "flex";
+    startApp();
+  }
+
+  function escapeHtml(str){
+    return String(str).replace(/[&<>"']/g, c => ({
+      "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+    }[c]));
+  }
+
+  // ===================== 主畫面渲染 =====================
+  function extractTop(data, routes, max){
+    return data
+      .filter(item => routes.some(r => r.toLowerCase() === (item.lineId||"").toLowerCase()))
+      .map(item => ({
+        route: item.lineName || item.lineId,
+        dest: item.destinationName || item.towards || "",
+        mins: Math.round((item.timeToStation != null ? item.timeToStation : 0) / 60),
+        color: colorForRoute(item.lineId || item.lineName, routes),
+      }))
+      .sort((a,b) => a.mins - b.mins)
+      .slice(0, max);
+  }
+
+  function renderRows(container, buses){
+    container.innerHTML = "";
+    if (buses.length === 0){
+      container.innerHTML = '<div class="empty-row">呢一刻冇班次資料</div>';
+      return;
+    }
+    buses.forEach((b, idx) => {
+      const row = document.createElement("div");
+      row.className = "row" + (idx === 0 ? " top" : "");
+      const timeLabel = b.mins <= 0 ? "到站" : b.mins;
+      const timeSuffix = b.mins <= 0 ? "" : "<small>分鐘後</small>";
+      row.innerHTML =
+        '<span class="route-badge" style="background:' + b.color + '">' + escapeHtml(String(b.route)) + '</span>' +
+        '<span class="dest">往 ' + escapeHtml(b.dest) + '</span>' +
+        '<span class="eta">' + timeLabel + timeSuffix + '</span>';
+      container.appendChild(row);
+    });
+  }
+
+  async function refreshData(){
+    if (!settings || !settings.outbound || !settings.inbound) return;
+    els.routesLabel.textContent = settings.routes.join(" · ");
+    els.outboundStopName.textContent = settings.outbound.label;
+    els.inboundStopName.textContent = settings.inbound.label;
+
+    els.refreshBtn.style.opacity = "0.5";
+    const [outboundData, inboundData] = await Promise.all([
+      fetchStopArrivals(settings.outbound.stopId),
+      fetchStopArrivals(settings.inbound.stopId),
+    ]);
+    els.refreshBtn.style.opacity = "1";
+
+    renderRows(els.outboundRows, extractTop(outboundData, settings.routes, 3));
+    renderRows(els.inboundRows, extractTop(inboundData, settings.routes, 3));
+
+    const now = new Date();
+    els.updatedLabel.textContent = "更新於 " +
+      String(now.getHours()).padStart(2,"0") + ":" + String(now.getMinutes()).padStart(2,"0");
+  }
+
+  els.refreshBtn.addEventListener("click", refreshData);
+
+  function startApp(){
+    els.mainScreen.style.display = "flex";
+    refreshData();
+    if (refreshTimer) clearInterval(refreshTimer);
+    refreshTimer = setInterval(refreshData, REFRESH_MS);
+    // 返回頁面時（例如由背景 tab 切返嚟）即刻刷新一次
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") refreshData();
+    });
+  }
+
+  // ===================== 初始化 =====================
+  if (settings && settings.outbound && settings.inbound){
+    startApp();
+  } else {
+    openSetup();
+  }
+
+  if ("serviceWorker" in navigator){
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("sw.js").catch(() => {});
+    });
+  }
+})();
+</script>
+</body>
+</html>
