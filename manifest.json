@@ -1,0 +1,15 @@
+{
+  "name": "倫敦巴士即時到站",
+  "short_name": "倫敦巴士",
+  "description": "TfL 即時到站查詢，去程／返程一次睇晒",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0B0D0F",
+  "theme_color": "#0B0D0F",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}
